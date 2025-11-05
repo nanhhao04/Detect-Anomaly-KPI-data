@@ -1,0 +1,539 @@
+import pandas as pd
+import time
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
+from sklearn.ensemble import IsolationForest
+import numpy as np
+import json
+import re
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+
+
+def load_and_scale_data(path, node_id):
+    start_time = time.time()
+
+    df = pd.read_csv(path)
+    df['date'] = pd.to_datetime(df['date'])
+    df['node'] = node_id
+    df = df.set_index('date')
+
+    numeric_cols = df.select_dtypes(include='number').columns
+    df[numeric_cols] = df[numeric_cols].interpolate(method='time')
+
+    percent_cols = [c for c in df.columns if 'UTIL' in c or c.endswith('SR') or c.endswith('EASR')]
+    throughput_cols = [c for c in df.columns if 'THROUGHPUT' in c and c not in percent_cols]
+    count_cols = [c for c in df.columns if ('SAU' in c or 'BEARER' in c or 'SESSION' in c)
+                  and c not in percent_cols and c not in throughput_cols]
+    error_cols = [c for c in df.columns if ('FAIL' in c or 'DROP' in c or 'ERROR' in c)
+                  and c not in percent_cols and c not in throughput_cols and c not in count_cols]
+
+    scaled_df = df.copy()
+
+    # Scale theo từng nhóm đặc trưng
+    if percent_cols:
+        scaler_percent = MinMaxScaler()
+        scaled_df[percent_cols] = scaler_percent.fit_transform(df[percent_cols])
+
+    if throughput_cols:
+        scaler_thr = StandardScaler()
+        scaled_df[throughput_cols] = scaler_thr.fit_transform(df[throughput_cols])
+
+    if count_cols:
+        scaler_count = RobustScaler()
+        scaled_df[count_cols] = scaler_count.fit_transform(df[count_cols])
+
+    if error_cols:
+        df[error_cols] = np.log1p(df[error_cols])
+        scaler_err = MinMaxScaler()
+        scaled_df[error_cols] = scaler_err.fit_transform(df[error_cols])
+
+    scaled_df = scaled_df.ffill().reset_index()
+
+    elapsed_time = time.time() - start_time
+    print(f"[load_and_scale_data] Node {node_id} hoàn thành trong {elapsed_time:.2f} giây")
+
+    return scaled_df
+
+
+def create_sequence(df, window_len):
+    start_time = time.time()
+
+    df_ = df.drop(columns=['date'])
+    n = len(df_)
+    sequences = []
+
+    for i in range(0, n, window_len):
+        window = df_.iloc[i:i + window_len].values
+        if len(window) < window_len:
+            last_row = window[-1]
+            padding = np.tile(last_row, (window_len - len(window), 1))
+            window = np.vstack([window, padding])
+
+        sequences.append(window)
+
+    elapsed_time = time.time() - start_time
+    print(f"[create_sequence] Tạo {len(sequences)} sequences trong {elapsed_time:.2f} giây")
+
+    return np.array(sequences)
+
+
+def train_isolation_forest(X_flat, contamination=0.05, random_state=42):
+    start_time = time.time()
+
+    X_train, X_temp = train_test_split(X_flat, test_size=0.3, random_state=random_state)
+    X_valid, X_test = train_test_split(X_temp, test_size=0.5, random_state=random_state)
+
+    print(f"[train_isolation_forest] Train size: {len(X_train)}, Valid: {len(X_valid)}, Test: {len(X_test)}")
+
+    iso = IsolationForest(
+        n_estimators=200,
+        contamination=contamination,
+        random_state=random_state
+    )
+    iso.fit(X_train)
+
+    elapsed_time = time.time() - start_time
+    print(f"[train_isolation_forest] Training hoàn thành trong {elapsed_time:.2f} giây")
+    return iso
+
+
+def apply_anomaly_detection(iso, X, X1,X2, scaled_df1, scaled_df2, window_len):
+    start_time = time.time()
+
+    y_pred_full = iso.predict(X)  # -1 là anomaly, 1 là normal
+    scores_full = iso.decision_function(X) * -1  # đảo dấu cho score cao -> càng bất thường
+
+    n1 = len(X1)
+    scores1, scores2 = scores_full[:n1], scores_full[n1:]
+    y1, y2 = y_pred_full[:n1], y_pred_full[n1:]
+
+    # Tính giá trị trung bình cho mỗi window
+    def get_window_averages(df, num_windows, window_len):
+        result_rows = []
+        for i in range(num_windows):
+            start_idx = i * window_len
+            end_idx = min(start_idx + window_len, len(df))
+            window_data = df.iloc[start_idx:end_idx]
+            # Tính trung bình cho các cột số, giữ nguyên cột khác
+            avg_row = {}
+            for col in window_data.columns:
+                if pd.api.types.is_numeric_dtype(window_data[col]):
+                    avg_row[col] = window_data[col].mean()
+                else:
+                    # Với cột không phải số (như date), lấy giá trị giữa window
+                    mid_idx = len(window_data) // 2
+                    avg_row[col] = window_data[col].iloc[mid_idx]
+            result_rows.append(avg_row)
+        return pd.DataFrame(result_rows)
+
+    df1_result = get_window_averages(scaled_df1, len(X1), window_len)
+    df2_result = get_window_averages(scaled_df2, len(X2), window_len)
+
+    df1_result['score'] = scores1
+    df1_result['anomaly'] = y1
+    df2_result['score'] = scores2
+    df2_result['anomaly'] = y2
+
+    data_with_date = pd.concat([df1_result, df2_result], ignore_index=True)
+
+    elapsed_time = time.time() - start_time
+    print(f"[apply_anomaly_detection] Hoàn thành trong {elapsed_time:.2f} giây")
+
+    return data_with_date
+
+#Lưu toàn bộ điểm bất thường (anomaly == -1) với giá trị trung bình của window.
+def save_top_anomalies_json(data_with_date, df_raw1, df_raw2, window_len, output_path="result_ml.json"):
+    start_time = time.time()
+
+    # --- Tính trung bình theo window, có thêm thời gian start/end ---
+    def get_window_averages(df, num_windows, window_len):
+        df = df.copy()
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date").reset_index(drop=True)
+
+        result_rows = []
+        n = len(df)
+
+        for i in range(num_windows):
+            start_idx = i * window_len
+            end_idx = min(start_idx + window_len, n)
+            window_data = df.iloc[start_idx:end_idx]
+
+            avg_row = {}
+
+            # Thời gian bắt đầu & kết thúc của cửa sổ
+            window_start = window_data["date"].iloc[0]
+            window_end = window_data["date"].iloc[-1]
+
+            avg_row["window_start"] = window_start
+            avg_row["window_end"] = window_end
+            avg_row["date"] = window_start  # giữ "date" = thời gian bắt đầu cho thống nhất
+
+            # Trung bình cho các cột số, giữ nguyên các cột khác (nếu cần)
+            for col in window_data.columns:
+                if pd.api.types.is_numeric_dtype(window_data[col]):
+                    avg_row[col] = window_data[col].mean()
+
+            result_rows.append(avg_row)
+
+        return pd.DataFrame(result_rows)
+
+    # --- Xử lý cho từng node ---
+    n1 = len(data_with_date[data_with_date["node"] == 1])
+    n2 = len(data_with_date[data_with_date["node"] == 2])
+
+    df_raw1_avg = get_window_averages(df_raw1, n1, window_len)
+    df_raw1_avg["node"] = 1
+    df_raw2_avg = get_window_averages(df_raw2, n2, window_len)
+    df_raw2_avg["node"] = 2
+
+    # --- Ghép & thêm cột score / anomaly ---
+    df_raw_all = pd.concat([df_raw1_avg, df_raw2_avg], ignore_index=True)
+    df_raw_all["score"] = data_with_date["score"].values
+    df_raw_all["anomaly"] = data_with_date["anomaly"].values
+
+    # --- Lọc và sắp xếp các anomaly ---
+    anomalies = df_raw_all[df_raw_all["anomaly"] == -1].copy()
+    anomalies = anomalies.sort_values("score", ascending=False)
+
+    # --- Lưu cả 2 loại file ---
+    # Toàn bộ dữ liệu (đầy đủ, cả normal + anomaly)
+    full_path = output_path.replace(".json", "_full.json")
+    df_raw_all.to_json(full_path, orient="records", date_format="iso", force_ascii=False)
+
+    # Chỉ anomaly
+    anomalies.to_json(output_path, orient="records", date_format="iso", force_ascii=False)
+
+    elapsed_time = time.time() - start_time
+    print(
+        f"[save_top_anomalies_json] Đã lưu {len(anomalies)} anomaly và toàn bộ dữ liệu ({len(df_raw_all)} windows)."
+    )
+    print(f"   → File anomaly: {output_path}")
+    print(f"   → File đầy đủ: {full_path}")
+    print(f"   Hoàn thành trong {elapsed_time:.2f} giây")
+
+    return anomalies
+
+
+def extract_anomaly_info(json_path):
+    import json
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if not content:
+                print(f"File {json_path} rỗng.")
+                return pd.DataFrame()
+            data = json.loads(content)
+    except Exception as e:
+        print(f"Không thể đọc JSON {json_path}: {e}")
+        return pd.DataFrame()
+
+    records = []
+    for anomaly_obj in data:
+        try:
+            # anomaly_obj = {"anomaly_1": {...}}
+            info = list(anomaly_obj.values())[0]
+            meta = info.get("meta", {})
+            name_fields = info.get("name_field", [])
+            date = meta.get("window_start") or meta.get("date")
+            node = meta.get("node")
+
+            if not date or not name_fields:
+                continue
+
+            # Tạo bản ghi cho từng field
+            for f_name in name_fields:
+                records.append({
+                    "date": pd.to_datetime(date, errors="coerce"),
+                    "node": int(node) if node is not None else None,
+                    "field": f_name.strip()
+                })
+
+        except Exception as e:
+            print(f"Lỗi khi xử lý anomaly_obj: {e}")
+            continue
+
+    df = pd.DataFrame(records)
+    if df.empty:
+        print(f"Không trích xuất được anomaly nào từ {json_path}.")
+    else:
+        print(f"Đã trích xuất {len(df)} anomaly records từ {json_path}.")
+        print(df)
+    return df
+
+
+
+def get_window_averages(df, window_len):
+    df = df.copy()
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.sort_values('date').reset_index(drop=True)
+
+    result_rows = []
+    n = len(df)
+    num_windows = int(np.ceil(n / window_len))
+
+    for i in range(num_windows):
+        start_idx = i * window_len
+        end_idx = min(start_idx + window_len, n)
+        window_data = df.iloc[start_idx:end_idx]
+
+        avg_row = {}
+        for col in df.columns:
+            if pd.api.types.is_numeric_dtype(window_data[col]):
+                avg_row[col] = window_data[col].mean()
+            else:
+                # đặt 'date' là bắt đầu window
+                avg_row[col] = window_data['date'].iloc[0] if 'date' in window_data.columns else window_data.iloc[0][col]
+
+        # thêm metadata window (bắt đầu và kết thúc) để dễ mapping sau này
+        avg_row['_window_start'] = window_data['date'].iloc[0]
+        avg_row['_window_end'] = window_data['date'].iloc[-1]
+
+        result_rows.append(avg_row)
+
+    avg_df = pd.DataFrame(result_rows)
+    avg_df['date'] = pd.to_datetime(avg_df['date'])
+    avg_df = avg_df.sort_values('date').reset_index(drop=True)
+    return avg_df
+
+
+def plot_anomaly(df, date, node=None, field=None, save_dir="plot_pics"):
+    """
+    Vẽ biểu đồ cho 1 ngày và highlight window chứa anomaly.
+    """
+    import os
+    import matplotlib.dates as mdates
+    import matplotlib.pyplot as plt
+    import pandas as pd
+
+    if field is None:
+        print("Thiếu tên cột cần vẽ (field).")
+        return None
+    if field not in df.columns:
+        print(f"Cột '{field}' không tồn tại. Các cột: {list(df.columns)}")
+        return None
+
+    os.makedirs(save_dir, exist_ok=True)
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    anomaly_ts = pd.to_datetime(date, errors="coerce")
+    if pd.isna(anomaly_ts):
+        print(f"Ngày anomaly không hợp lệ: {date}")
+        return None
+
+    # lọc dữ liệu trong ngày anomaly
+    day_start = anomaly_ts.normalize()
+    day_end = day_start + pd.Timedelta(days=1)
+    subset = df[(df["date"] >= day_start) & (df["date"] < day_end)]
+
+    # lọc theo node
+    if "node" in subset.columns and node is not None:
+        subset = subset[subset["node"].astype(str) == str(node)]
+
+    if subset.empty:
+        print(f"⚠️ Không tìm thấy dữ liệu cho ngày {anomaly_ts.date()}, node={node}")
+        print(f"Khoảng thời gian có sẵn: {df['date'].min()} → {df['date'].max()}")
+        return None
+
+    # nhận dạng tên cột window
+    win_start_col = next((c for c in subset.columns if "window_start" in c.lower()), None)
+    win_end_col = next((c for c in subset.columns if "window_end" in c.lower()), None)
+
+    window_idx = None
+    if win_start_col and win_end_col:
+        subset[win_start_col] = pd.to_datetime(subset[win_start_col])
+        subset[win_end_col] = pd.to_datetime(subset[win_end_col])
+        mask = (subset[win_start_col] <= anomaly_ts) & (anomaly_ts <= subset[win_end_col])
+        if mask.any():
+            window_idx = subset[mask].index[0]
+
+    # nếu không khớp window nào, chọn điểm gần nhất
+    if window_idx is None:
+        diffs = (subset["date"] - anomaly_ts).abs()
+        window_idx = diffs.idxmin()
+
+    anomaly_point = subset.loc[window_idx, "date"]
+    anomaly_value = subset.loc[window_idx, field]
+
+    # --- Vẽ ---
+    plt.figure(figsize=(9, 4))
+    plt.plot(subset["date"], subset[field], marker="o", linewidth=2, label=field)
+    plt.scatter([anomaly_point], [anomaly_value], color="red", s=60, zorder=5, label="Anomaly")
+    plt.axvline(anomaly_point, color="red", linestyle="--", alpha=0.6)
+
+    # highlight vùng window
+    if win_start_col and win_end_col:
+        ws = subset.loc[window_idx, win_start_col]
+        we = subset.loc[window_idx, win_end_col]
+        plt.axvspan(ws, we, color="red", alpha=0.15)
+
+    plt.title(f"{field} ({day_start.date()}) - Node {node}", fontsize=12)
+    plt.xlabel("Thời gian")
+    plt.ylabel("Giá trị trung bình")
+    plt.legend()
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    plt.xticks(rotation=30)
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+
+    safe_field = "".join([c if c.isalnum() or c in (" ", "_") else "_" for c in str(field)])
+    fname = f"{safe_field}_{day_start.date()}_Node{node}.png"
+    path = os.path.join(save_dir, fname)
+    plt.savefig(path, dpi=200)
+    plt.close()
+
+    print(f"✅ Đã lưu biểu đồ: {path}")
+    print(f"   → Window: {ws if win_start_col else anomaly_point} → {we if win_end_col else ''}")
+    print(f"   → Giá trị anomaly: {anomaly_value}")
+    return path
+
+
+
+def create_json_output(answer, json_path="result_ml.json", output_path="result_structured.json"):
+    """
+    Tạo file JSON có cấu trúc từ đầu ra GPT (không dùng regex),
+    dựa theo format markdown có các mục:
+    ### Phân tích bất thường mạng ngày ...
+    #### Khoảng thời gian ...
+    - Node: ...
+    - Score: ...
+    - Các trường dữ liệu nguyên nhân gây ra bất thường: ...
+    """
+    import json
+    import pandas as pd
+
+    # --- Load dữ liệu anomaly thật ---
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    df = pd.DataFrame(data)
+
+    lines = [line.strip() for line in answer.splitlines() if line.strip()]
+    result = []
+    anomaly_counter = 1
+
+    current_date = None
+    current_item = None
+
+    for line in lines:
+        # --- Bắt ngày ---
+        if line.startswith("### Phân tích bất thường mạng ngày"):
+            current_date = line.split()[-1]
+            continue
+
+        # --- Bắt đầu một khoảng anomaly ---
+        if line.startswith("#### Khoảng thời gian"):
+            # Nếu đang có anomaly trước đó, lưu lại
+            if current_item:
+                result.append(current_item)
+            current_item = {
+                "date": current_date,
+                "window_text": line.replace("#### ", "").strip(),
+                "node": None,
+                "score": None,
+                "fields": [],
+                "content": ""
+            }
+            continue
+
+        # --- Node ---
+        if line.startswith("- **Node**") or line.startswith("- Node"):
+            try:
+                current_item["node"] = int(line.split(":")[1].strip())
+            except Exception:
+                pass
+            continue
+
+        # --- Score ---
+        if line.startswith("- **Score**") or line.startswith("- Score"):
+            try:
+                current_item["score"] = float(line.split(":")[1].strip())
+            except Exception:
+                pass
+            continue
+
+        if line.startswith("-"):
+            # Nhận diện cả dạng: - `FIELD`: ... hoặc - **FIELD**: ...
+            import re
+            match = re.search(r"[-•]\s*(?:`|\*\*)([A-Za-z0-9_ ]+)(?:`|\*\*)\s*:\s*([\d\.]+)", line)
+            if match:
+                field_name = match.group(1).strip()
+                try:
+                    value = float(match.group(2))
+                except Exception:
+                    value = None
+                current_item["fields"].append((field_name, value))
+                continue
+
+        # --- Nguyên nhân / mô tả ---
+        if line.lower().startswith("**nguyên nhân") or line.lower().startswith("nguyên nhân"):
+            current_item["content"] += " " + line.strip()
+            continue
+
+        # --- Nội dung phụ ---
+        if current_item:
+            current_item["content"] += " " + line.strip()
+
+    # Lưu anomaly cuối cùng
+    if current_item:
+        result.append(current_item)
+
+    # --- Ghép thông tin gốc từ result_ml.json ---
+    structured = []
+    for item in result:
+        node = item["node"]
+        score = item["score"]
+        date = item["date"]
+        fields = [f for f, _ in item["fields"]]
+
+        # Tìm record trong result_ml.json khớp node + score
+        related = df[
+            (df["node"] == node)
+            & (df["score"].round(6) == round(score, 6))
+        ]
+        meta = related.iloc[0].to_dict() if not related.empty else {}
+
+        structured.append({
+            f"anomaly_{anomaly_counter}": {
+                "name_field": fields,
+                "content": item["content"].strip(),
+                "meta": meta
+            }
+        })
+        anomaly_counter += 1
+
+    # --- Ghi ra file ---
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(structured, f, ensure_ascii=False, indent=2)
+
+    print(f"✅ Đã tạo file JSON có cấu trúc: {output_path}")
+    print(f"   → Tổng số anomaly: {len(structured)}")
+
+    return structured
+
+# Hàm xoá file
+def remove_file_safe(path, backup=False):
+    import datetime
+    import os
+    import shutil
+    """
+    Xóa file nếu tồn tại. Nếu backup=True, tạo bản sao lưu trước khi xóa.
+    """
+    if not os.path.exists(path):
+        print(f"⚠️  File không tồn tại: {path}")
+        return
+'''
+    try:
+        if backup:
+            backup_path = f"{path}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            shutil.copy2(path, backup_path)
+            print(f"📦 Đã sao lưu file cũ vào: {backup_path}")
+
+        os.remove(path)
+        print(f"🗑️  Đã xóa file: {path}")
+
+    except Exception as e:
+        print(f"❌ Lỗi khi xóa file {path}: {e}")
+        '''

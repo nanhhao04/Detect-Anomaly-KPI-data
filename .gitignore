@@ -1,0 +1,19 @@
+# Bỏ qua thư mục dữ liệu theo yêu cầu
+data/
+
+# Bỏ qua các tệp môi trường (rất quan trọng)
+.env
+*.env
+
+# Bỏ qua các thư mục cache của Python
+__pycache__/
+*.pyc
+
+
+# Bỏ qua các tệp cấu hình IDE (như PyCharm, VSCode)
+.idea/
+.vscode/
+
+# Bỏ qua các tệp hệ điều hành (macOS, Windows)
+.DS_Store
+Thumbs.db
