@@ -9,7 +9,10 @@ import re
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
-
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 def load_and_scale_data(path, node_id):
     start_time = time.time()
@@ -299,20 +302,31 @@ def get_window_averages(df, window_len):
     return avg_df
 
 
-def plot_anomaly(df, date, node=None, field=None, save_dir="plot_pics"):
+
+
+
+def plot_anomaly(df, date, node=None, field=None, save_dir="plot_pics", drawn_fields=None):
     """
     Vẽ biểu đồ cho 1 ngày và highlight window chứa anomaly.
+    ➤ Phiên bản chỉ lấy điểm thấp nhất (min) làm anomaly.
     """
     import os
-    import matplotlib.dates as mdates
-    import matplotlib.pyplot as plt
     import pandas as pd
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
 
+    if drawn_fields is None:
+        drawn_fields = set()
+
+    # --- Kiểm tra đầu vào ---
     if field is None:
         print("Thiếu tên cột cần vẽ (field).")
         return None
     if field not in df.columns:
-        print(f"Cột '{field}' không tồn tại. Các cột: {list(df.columns)}")
+        print(f"⚠️ Cột '{field}' không tồn tại trong dữ liệu.")
+        return None
+    if field in drawn_fields:
+        print(f"⏩ Field '{field}' đã vẽ trước đó, bỏ qua.")
         return None
 
     os.makedirs(save_dir, exist_ok=True)
@@ -321,64 +335,67 @@ def plot_anomaly(df, date, node=None, field=None, save_dir="plot_pics"):
 
     anomaly_ts = pd.to_datetime(date, errors="coerce")
     if pd.isna(anomaly_ts):
-        print(f"Ngày anomaly không hợp lệ: {date}")
+        print(f"⚠️ Ngày anomaly không hợp lệ: {date}")
         return None
 
-    # lọc dữ liệu trong ngày anomaly
+    # --- Lọc dữ liệu trong ngày và node ---
     day_start = anomaly_ts.normalize()
     day_end = day_start + pd.Timedelta(days=1)
     subset = df[(df["date"] >= day_start) & (df["date"] < day_end)]
-
-    # lọc theo node
     if "node" in subset.columns and node is not None:
         subset = subset[subset["node"].astype(str) == str(node)]
 
     if subset.empty:
-        print(f"⚠️ Không tìm thấy dữ liệu cho ngày {anomaly_ts.date()}, node={node}")
-        print(f"Khoảng thời gian có sẵn: {df['date'].min()} → {df['date'].max()}")
+        print(f"⚠️ Không có dữ liệu cho ngày {anomaly_ts.date()}, node={node}")
         return None
 
-    # nhận dạng tên cột window
+    # --- Xác định window chứa anomaly ---
     win_start_col = next((c for c in subset.columns if "window_start" in c.lower()), None)
     win_end_col = next((c for c in subset.columns if "window_end" in c.lower()), None)
+    ws, we, window_idx = None, None, None
 
-    window_idx = None
     if win_start_col and win_end_col:
         subset[win_start_col] = pd.to_datetime(subset[win_start_col])
         subset[win_end_col] = pd.to_datetime(subset[win_end_col])
         mask = (subset[win_start_col] <= anomaly_ts) & (anomaly_ts <= subset[win_end_col])
         if mask.any():
             window_idx = subset[mask].index[0]
+            ws = subset.loc[window_idx, win_start_col]
+            we = subset.loc[window_idx, win_end_col]
 
-    # nếu không khớp window nào, chọn điểm gần nhất
     if window_idx is None:
         diffs = (subset["date"] - anomaly_ts).abs()
         window_idx = diffs.idxmin()
+        ws = we = subset.loc[window_idx, "date"]
 
-    anomaly_point = subset.loc[window_idx, "date"]
-    anomaly_value = subset.loc[window_idx, field]
+    # --- Tìm điểm thấp nhất trong window ---
+    window_data = subset[(subset["date"] >= ws) & (subset["date"] <= we)]
+    if not window_data.empty:
+        min_idx = window_data[field].idxmin()
+        anomaly_point = window_data.loc[min_idx, "date"]
+        anomaly_value = window_data.loc[min_idx, field]
+    else:
+        anomaly_point = ws
+        anomaly_value = subset.loc[window_idx, field]
 
-    # --- Vẽ ---
+    # --- Vẽ biểu đồ ---
     plt.figure(figsize=(9, 4))
-    plt.plot(subset["date"], subset[field], marker="o", linewidth=2, label=field)
-    plt.scatter([anomaly_point], [anomaly_value], color="red", s=60, zorder=5, label="Anomaly")
+    plt.plot(subset["date"], subset[field], marker="o", linewidth=2, color="#1f77b4", label=field)
+    plt.scatter([anomaly_point], [anomaly_value], color="red", s=70, zorder=5, label="Anomaly (min)")
     plt.axvline(anomaly_point, color="red", linestyle="--", alpha=0.6)
+    if ws != we:
+        plt.axvspan(ws, we, color="orange", alpha=0.15)
 
-    # highlight vùng window
-    if win_start_col and win_end_col:
-        ws = subset.loc[window_idx, win_start_col]
-        we = subset.loc[window_idx, win_end_col]
-        plt.axvspan(ws, we, color="red", alpha=0.15)
-
-    plt.title(f"{field} ({day_start.date()}) - Node {node}", fontsize=12)
+    plt.title(f"{field} - Node {node} ({day_start.date()})", fontsize=12, fontweight="bold")
     plt.xlabel("Thời gian")
     plt.ylabel("Giá trị trung bình")
     plt.legend()
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     plt.xticks(rotation=30)
-    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.grid(True, linestyle="--", alpha=0.5)
     plt.tight_layout()
 
+    # --- Lưu hình ---
     safe_field = "".join([c if c.isalnum() or c in (" ", "_") else "_" for c in str(field)])
     fname = f"{safe_field}_{day_start.date()}_Node{node}.png"
     path = os.path.join(save_dir, fname)
@@ -386,21 +403,21 @@ def plot_anomaly(df, date, node=None, field=None, save_dir="plot_pics"):
     plt.close()
 
     print(f"✅ Đã lưu biểu đồ: {path}")
-    print(f"   → Window: {ws if win_start_col else anomaly_point} → {we if win_end_col else ''}")
-    print(f"   → Giá trị anomaly: {anomaly_value}")
+    print(f"   → Window: {ws} → {we}")
+    print(f"   → Giá trị anomaly thấp nhất: {anomaly_value:.4f}")
+
+    drawn_fields.add(field)
     return path
+
 
 
 
 def create_json_output(answer, json_path="result_ml.json", output_path="result_structured.json"):
     """
-    Tạo file JSON có cấu trúc từ đầu ra GPT (không dùng regex),
-    dựa theo format markdown có các mục:
-    ### Phân tích bất thường mạng ngày ...
-    #### Khoảng thời gian ...
-    - Node: ...
-    - Score: ...
-    - Các trường dữ liệu nguyên nhân gây ra bất thường: ...
+    Tạo file JSON có cấu trúc từ đầu ra của mô hình.
+    Hỗ trợ cả hai trường hợp:
+      1️⃣ Model trả về JSON đúng định dạng (list[dict])
+      2️⃣ Model trả về text tự do (sẽ cố parse thủ công)
     """
     import json
     import pandas as pd
@@ -410,101 +427,129 @@ def create_json_output(answer, json_path="result_ml.json", output_path="result_s
         data = json.load(f)
     df = pd.DataFrame(data)
 
-    lines = [line.strip() for line in answer.splitlines() if line.strip()]
-    result = []
+    structured = []
     anomaly_counter = 1
 
-    current_date = None
-    current_item = None
+    # --- TH1: Model trả về JSON hợp lệ ---
+    try:
+        # Tách các dòng không rỗng
+        lines = [l.strip() for l in answer.splitlines() if l.strip()]
 
-    for line in lines:
-        # --- Bắt ngày ---
-        if line.startswith("### Phân tích bất thường mạng ngày"):
-            current_date = line.split()[-1]
-            continue
-
-        # --- Bắt đầu một khoảng anomaly ---
-        if line.startswith("#### Khoảng thời gian"):
-            # Nếu đang có anomaly trước đó, lưu lại
-            if current_item:
-                result.append(current_item)
-            current_item = {
-                "date": current_date,
-                "window_text": line.replace("#### ", "").strip(),
-                "node": None,
-                "score": None,
-                "fields": [],
-                "content": ""
-            }
-            continue
-
-        # --- Node ---
-        if line.startswith("- **Node**") or line.startswith("- Node"):
+        # Tìm vị trí dòng bắt đầu chứa JSON (bắt đầu bằng "[" hoặc "{")
+        start_idx = next((i for i, l in enumerate(lines) if l.startswith("[") or l.startswith("{")), None)
+        if start_idx is not None:
+            json_text = "\n".join(lines[start_idx:])
+            # Cắt phần còn lại nếu sau JSON có chữ, đảm bảo đóng ngoặc đủ
             try:
-                current_item["node"] = int(line.split(":")[1].strip())
+                # Dò thủ công số ngoặc mở/đóng để xác định phần JSON đầy đủ
+                open_brackets = 0
+                json_lines = []
+                for line in lines[start_idx:]:
+                    open_brackets += line.count("[") + line.count("{")
+                    open_brackets -= line.count("]") + line.count("}")
+                    json_lines.append(line)
+                    if open_brackets == 0:
+                        break
+                json_text = "\n".join(json_lines)
             except Exception:
                 pass
-            continue
 
-        # --- Score ---
-        if line.startswith("- **Score**") or line.startswith("- Score"):
-            try:
-                current_item["score"] = float(line.split(":")[1].strip())
-            except Exception:
-                pass
-            continue
+            # Parse JSON
+            json_data = json.loads(json_text)
 
-        if line.startswith("-"):
-            # Nhận diện cả dạng: - `FIELD`: ... hoặc - **FIELD**: ...
-            import re
-            match = re.search(r"[-•]\s*(?:`|\*\*)([A-Za-z0-9_ ]+)(?:`|\*\*)\s*:\s*([\d\.]+)", line)
-            if match:
-                field_name = match.group(1).strip()
-                try:
-                    value = float(match.group(2))
-                except Exception:
-                    value = None
-                current_item["fields"].append((field_name, value))
+            # Chuẩn hóa về dạng anomaly list
+            structured = []
+            for i, item in enumerate(json_data, start=1):
+                structured.append({
+                    f"anomaly_{i}": {
+                        "name_field": [item.get("field")],
+                        "content": item.get("reason", ""),
+                        "meta": {
+                            "date": item.get("date"),
+                            "node": item.get("node"),
+                        }
+                    }
+                })
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(structured, f, ensure_ascii=False, indent=2)
+            print(f"✅ Đã tạo file JSON có cấu trúc: {output_path}")
+            print(f"   → Tổng số anomaly: {len(structured)}")
+            return structured
+
+    except Exception as e:
+        print(f"⚠️ Không phát hiện JSON trong kết quả, fallback sang parser cũ: {e}")
+
+
+        # --- TH2: fallback sang logic markdown cũ (giữ nguyên của bạn) ---
+        lines = [line.strip() for line in answer.splitlines() if line.strip()]
+        current_date = None
+        current_item = None
+        result = []
+
+        for line in lines:
+            if line.startswith("### Phân tích bất thường mạng ngày"):
+                current_date = line.split()[-1]
                 continue
+            if line.startswith("#### Khoảng thời gian"):
+                if current_item:
+                    result.append(current_item)
+                current_item = {
+                    "date": current_date,
+                    "window_text": line.replace("#### ", "").strip(),
+                    "node": None,
+                    "score": None,
+                    "fields": [],
+                    "content": ""
+                }
+                continue
+            if line.startswith("- Node"):
+                try:
+                    current_item["node"] = int(line.split(":")[1].strip())
+                except Exception:
+                    pass
+                continue
+            if line.startswith("- Score"):
+                try:
+                    current_item["score"] = float(line.split(":")[1].strip())
+                except Exception:
+                    pass
+                continue
+            if line.startswith("-"):
+                match = re.search(r"[-•]\s*(?:`|\*\*)([A-Za-z0-9_ ]+)(?:`|\*\*)\s*:\s*([\d\.]+)", line)
+                if match:
+                    field_name = match.group(1).strip()
+                    try:
+                        value = float(match.group(2))
+                    except Exception:
+                        value = None
+                    current_item["fields"].append((field_name, value))
+                    continue
+            if line.lower().startswith("nguyên nhân"):
+                current_item["content"] += " " + line.strip()
+                continue
+            if current_item:
+                current_item["content"] += " " + line.strip()
 
-        # --- Nguyên nhân / mô tả ---
-        if line.lower().startswith("**nguyên nhân") or line.lower().startswith("nguyên nhân"):
-            current_item["content"] += " " + line.strip()
-            continue
-
-        # --- Nội dung phụ ---
         if current_item:
-            current_item["content"] += " " + line.strip()
+            result.append(current_item)
 
-    # Lưu anomaly cuối cùng
-    if current_item:
-        result.append(current_item)
+        for item in result:
+            node = item["node"]
+            score = item["score"]
+            date = item["date"]
+            fields = [f for f, _ in item["fields"]]
+            related = df[(df["node"] == node) & (df["score"].round(6) == round(score or 0, 6))]
+            meta = related.iloc[0].to_dict() if not related.empty else {}
+            structured.append({
+                f"anomaly_{anomaly_counter}": {
+                    "name_field": fields,
+                    "content": item["content"].strip(),
+                    "meta": meta
+                }
+            })
+            anomaly_counter += 1
 
-    # --- Ghép thông tin gốc từ result_ml.json ---
-    structured = []
-    for item in result:
-        node = item["node"]
-        score = item["score"]
-        date = item["date"]
-        fields = [f for f, _ in item["fields"]]
-
-        # Tìm record trong result_ml.json khớp node + score
-        related = df[
-            (df["node"] == node)
-            & (df["score"].round(6) == round(score, 6))
-        ]
-        meta = related.iloc[0].to_dict() if not related.empty else {}
-
-        structured.append({
-            f"anomaly_{anomaly_counter}": {
-                "name_field": fields,
-                "content": item["content"].strip(),
-                "meta": meta
-            }
-        })
-        anomaly_counter += 1
-
-    # --- Ghi ra file ---
+    # --- Ghi file kết quả ---
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(structured, f, ensure_ascii=False, indent=2)
 
@@ -512,6 +557,7 @@ def create_json_output(answer, json_path="result_ml.json", output_path="result_s
     print(f"   → Tổng số anomaly: {len(structured)}")
 
     return structured
+
 
 # Hàm xoá file
 def remove_file_safe(path, backup=False):

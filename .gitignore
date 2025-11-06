@@ -17,3 +17,5 @@ __pycache__/
 # Bỏ qua các tệp hệ điều hành (macOS, Windows)
 .DS_Store
 Thumbs.db
+
+faiss_index
