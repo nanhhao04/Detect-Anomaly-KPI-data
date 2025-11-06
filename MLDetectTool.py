@@ -306,119 +306,54 @@ def get_window_averages(df, window_len):
 
 
 def plot_anomaly(df, date, node=None, field=None, save_dir="plot_pics", drawn_fields=None):
-    """
-    Vẽ biểu đồ cho 1 ngày và highlight window chứa anomaly.
-    ➤ Phiên bản chỉ lấy điểm thấp nhất (min) làm anomaly.
-    """
-    import os
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
-
     if drawn_fields is None:
         drawn_fields = set()
 
-    # --- Kiểm tra đầu vào ---
-    if field is None:
-        print("Thiếu tên cột cần vẽ (field).")
-        return None
-    if field not in df.columns:
-        print(f"⚠️ Cột '{field}' không tồn tại trong dữ liệu.")
+    if field is None or field not in df.columns:
+        print(f"Cột '{field}' không tồn tại hoặc không hợp lệ.")
         return None
     if field in drawn_fields:
-        print(f"⏩ Field '{field}' đã vẽ trước đó, bỏ qua.")
+        print(f"Field '{field}' đã vẽ trước đó, bỏ qua.")
         return None
 
     os.makedirs(save_dir, exist_ok=True)
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    anomaly_ts = pd.to_datetime(date, errors="coerce")
-    if pd.isna(anomaly_ts):
-        print(f"⚠️ Ngày anomaly không hợp lệ: {date}")
+    # Lọc theo ngày
+    target_day = pd.to_datetime(date).normalize()
+    day_data = df[(df["date"] >= target_day) & (df["date"] < target_day + pd.Timedelta(days=1))]
+    if node is not None and "node" in df.columns:
+        day_data = day_data[day_data["node"].astype(str) == str(node)]
+
+    if day_data.empty:
+        print(f"Không có dữ liệu cho ngày {target_day.date()}, node={node}")
         return None
 
-    # --- Lọc dữ liệu trong ngày và node ---
-    day_start = anomaly_ts.normalize()
-    day_end = day_start + pd.Timedelta(days=1)
-    subset = df[(df["date"] >= day_start) & (df["date"] < day_end)]
-    if "node" in subset.columns and node is not None:
-        subset = subset[subset["node"].astype(str) == str(node)]
-
-    if subset.empty:
-        print(f"⚠️ Không có dữ liệu cho ngày {anomaly_ts.date()}, node={node}")
-        return None
-
-    # --- Xác định window chứa anomaly ---
-    win_start_col = next((c for c in subset.columns if "window_start" in c.lower()), None)
-    win_end_col = next((c for c in subset.columns if "window_end" in c.lower()), None)
-    ws, we, window_idx = None, None, None
-
-    if win_start_col and win_end_col:
-        subset[win_start_col] = pd.to_datetime(subset[win_start_col])
-        subset[win_end_col] = pd.to_datetime(subset[win_end_col])
-        mask = (subset[win_start_col] <= anomaly_ts) & (anomaly_ts <= subset[win_end_col])
-        if mask.any():
-            window_idx = subset[mask].index[0]
-            ws = subset.loc[window_idx, win_start_col]
-            we = subset.loc[window_idx, win_end_col]
-
-    if window_idx is None:
-        diffs = (subset["date"] - anomaly_ts).abs()
-        window_idx = diffs.idxmin()
-        ws = we = subset.loc[window_idx, "date"]
-
-    # --- Tìm điểm thấp nhất trong window ---
-    window_data = subset[(subset["date"] >= ws) & (subset["date"] <= we)]
-    if not window_data.empty:
-        min_idx = window_data[field].idxmin()
-        anomaly_point = window_data.loc[min_idx, "date"]
-        anomaly_value = window_data.loc[min_idx, field]
-    else:
-        anomaly_point = ws
-        anomaly_value = subset.loc[window_idx, field]
-
-    # --- Vẽ biểu đồ ---
+    # Vẽ
     plt.figure(figsize=(9, 4))
-    plt.plot(subset["date"], subset[field], marker="o", linewidth=2, color="#1f77b4", label=field)
-    plt.scatter([anomaly_point], [anomaly_value], color="red", s=70, zorder=5, label="Anomaly (min)")
-    plt.axvline(anomaly_point, color="red", linestyle="--", alpha=0.6)
-    if ws != we:
-        plt.axvspan(ws, we, color="orange", alpha=0.15)
-
-    plt.title(f"{field} - Node {node} ({day_start.date()})", fontsize=12, fontweight="bold")
+    plt.plot(day_data["date"], day_data[field], marker="o", linewidth=2, label=field)
+    plt.title(f"{field} - Node {node} ({target_day.date()})", fontsize=12, fontweight="bold")
     plt.xlabel("Thời gian")
-    plt.ylabel("Giá trị trung bình")
+    plt.ylabel("Giá trị KPI")
     plt.legend()
+    plt.grid(True, linestyle="--", alpha=0.5)
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     plt.xticks(rotation=30)
-    plt.grid(True, linestyle="--", alpha=0.5)
     plt.tight_layout()
 
-    # --- Lưu hình ---
-    safe_field = "".join([c if c.isalnum() or c in (" ", "_") else "_" for c in str(field)])
-    fname = f"{safe_field}_{day_start.date()}_Node{node}.png"
+    # Lưu file
+    fname = f"{field}_{target_day.date()}_Node{node}.png"
     path = os.path.join(save_dir, fname)
     plt.savefig(path, dpi=200)
     plt.close()
 
-    print(f"✅ Đã lưu biểu đồ: {path}")
-    print(f"   → Window: {ws} → {we}")
-    print(f"   → Giá trị anomaly thấp nhất: {anomaly_value:.4f}")
-
+    print(f" Đã lưu biểu đồ: {path}")
     drawn_fields.add(field)
     return path
 
 
-
-
 def create_json_output(answer, json_path="result_ml.json", output_path="result_structured.json"):
-    """
-    Tạo file JSON có cấu trúc từ đầu ra của mô hình.
-    Hỗ trợ cả hai trường hợp:
-      1️⃣ Model trả về JSON đúng định dạng (list[dict])
-      2️⃣ Model trả về text tự do (sẽ cố parse thủ công)
-    """
     import json
     import pandas as pd
 
@@ -472,12 +407,12 @@ def create_json_output(answer, json_path="result_ml.json", output_path="result_s
                 })
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(structured, f, ensure_ascii=False, indent=2)
-            print(f"✅ Đã tạo file JSON có cấu trúc: {output_path}")
+            print(f" Đã tạo file JSON có cấu trúc: {output_path}")
             print(f"   → Tổng số anomaly: {len(structured)}")
             return structured
 
     except Exception as e:
-        print(f"⚠️ Không phát hiện JSON trong kết quả, fallback sang parser cũ: {e}")
+        print(f" Không phát hiện JSON trong kết quả, fallback sang parser cũ: {e}")
 
 
         # --- TH2: fallback sang logic markdown cũ (giữ nguyên của bạn) ---
@@ -553,33 +488,7 @@ def create_json_output(answer, json_path="result_ml.json", output_path="result_s
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(structured, f, ensure_ascii=False, indent=2)
 
-    print(f"✅ Đã tạo file JSON có cấu trúc: {output_path}")
+    print(f" Đã tạo file JSON có cấu trúc: {output_path}")
     print(f"   → Tổng số anomaly: {len(structured)}")
 
     return structured
-
-
-# Hàm xoá file
-def remove_file_safe(path, backup=False):
-    import datetime
-    import os
-    import shutil
-    """
-    Xóa file nếu tồn tại. Nếu backup=True, tạo bản sao lưu trước khi xóa.
-    """
-    if not os.path.exists(path):
-        print(f"⚠️  File không tồn tại: {path}")
-        return
-'''
-    try:
-        if backup:
-            backup_path = f"{path}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            shutil.copy2(path, backup_path)
-            print(f"📦 Đã sao lưu file cũ vào: {backup_path}")
-
-        os.remove(path)
-        print(f"🗑️  Đã xóa file: {path}")
-
-    except Exception as e:
-        print(f"❌ Lỗi khi xóa file {path}: {e}")
-        '''

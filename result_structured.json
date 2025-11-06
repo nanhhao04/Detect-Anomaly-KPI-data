@@ -2,76 +2,72 @@
   {
     "anomaly_1": {
       "name_field": [
-        "CREATE_DEDICATED_BEARER_SR",
-        "DEDICATED_BEARER_MME",
-        "EASR"
+        "SAU_4G"
       ],
-      "content": "- **Thời gian**: Từ 20:20 đến 20:50 - **Trường dữ liệu nguyên nhân gây ra bất thường**: Nguyên nhân có thể là do sự gia tăng đột biến trong yêu cầu tạo bearer, dẫn đến việc xử lý không kịp thời và làm giảm hiệu suất tổng thể của mạng.",
+      "content": "Tăng số lượng attach/service request",
       "meta": {
-        "window_start": "2025-02-07T20:20:00.000",
-        "window_end": "2025-02-07T20:50:00.000",
         "date": "2025-02-07T20:20:00.000",
-        "BEARER_MME_UTIL": 16.3033333333,
-        "CREATE_DEDICATED_BEARER_SR": 90.1866666667,
-        "CSFB SR": 85.5933333333,
-        "DEDICATED_BEARER_MME": 288.6666666667,
-        "EASR": 31.9933333333,
-        "INTRA_TAU_SR": 99.9816666667,
-        "S1_INTRA_HANDOVER_SR": 73.8866666667,
-        "S1_PAGGING_SR": 81.68,
-        "SAU_4G": 195320.1666666667,
-        "SAU_UTIL_4G": 19.5316666667,
-        "SERVICE_REQUEST_SR": 62.84,
-        "SG_LU_SR": 99.57,
-        "SMS_PAGGING_SR": 82.6366666667,
-        "BEARER_4G": 91163.6666666667,
-        "PGW BEARER SR": 99.9766666667,
-        "PGW_BEARER_UTIL": 9.1166666667,
-        "SGW BEARER SR": 99.4766666667,
-        "THROUGHPUT_4G": 106.7166666667,
-        "THROUGHPUT_UTIL": 6.5916666667,
-        "hour": 20.0,
-        "node": 2,
-        "score": 0.1615617966,
-        "anomaly": -1
+        "node": 2
       }
     }
   },
   {
     "anomaly_2": {
       "name_field": [
-        "CREATE_DEDICATED_BEARER_SR",
-        "DEDICATED_BEARER_MME",
-        "EASR"
+        "SAU_UTIL_4G"
       ],
-      "content": "- **Thời gian**: Từ 20:55 đến 21:20 - **Trường dữ liệu nguyên nhân gây ra bất thường**: Nguyên nhân có thể là do sự gia tăng tiếp tục trong yêu cầu tạo bearer, dẫn đến tình trạng quá tải trong việc xử lý và ảnh hưởng đến chất lượng dịch vụ mạng. ### Tóm tắt: Trong ngày 2025-02-07, đã ghi nhận hai khoảng thời gian bất thường với các chỉ số KPI cho thấy sự gia tăng trong yêu cầu tạo bearer và số lượng bearer, cùng với tỷ lệ thành công thấp, có thể chỉ ra vấn đề về khả năng xử lý của mạng.",
+      "content": "Tăng số lượng attach/service request",
       "meta": {
-        "window_start": "2025-02-07T20:55:00.000",
-        "window_end": "2025-02-07T21:20:00.000",
+        "date": "2025-02-07T20:20:00.000",
+        "node": 2
+      }
+    }
+  },
+  {
+    "anomaly_3": {
+      "name_field": [
+        "BEARER_MME_UTIL"
+      ],
+      "content": "Tăng số lượng attach/service request",
+      "meta": {
+        "date": "2025-02-07T20:20:00.000",
+        "node": 2
+      }
+    }
+  },
+  {
+    "anomaly_4": {
+      "name_field": [
+        "SAU_4G"
+      ],
+      "content": "Tăng số lượng attach/service request",
+      "meta": {
         "date": "2025-02-07T20:55:00.000",
-        "BEARER_MME_UTIL": 16.2416666667,
-        "CREATE_DEDICATED_BEARER_SR": 91.72,
-        "CSFB SR": 93.0683333333,
-        "DEDICATED_BEARER_MME": 298.6666666667,
-        "EASR": 68.2466666667,
-        "INTRA_TAU_SR": 99.9,
-        "S1_INTRA_HANDOVER_SR": 84.2633333333,
-        "S1_PAGGING_SR": 85.4566666667,
-        "SAU_4G": 194184.6666666667,
-        "SAU_UTIL_4G": 19.4183333333,
-        "SERVICE_REQUEST_SR": 84.89,
-        "SG_LU_SR": 99.2083333333,
-        "SMS_PAGGING_SR": 90.35,
-        "BEARER_4G": 91191.5,
-        "PGW BEARER SR": 99.9683333333,
-        "PGW_BEARER_UTIL": 9.1166666667,
-        "SGW BEARER SR": 99.485,
-        "THROUGHPUT_4G": 117.0816666667,
-        "THROUGHPUT_UTIL": 6.705,
-        "hour": 20.8333333333,
-        "node": 2,
-        "score": 0.0944872512,
-        "anomaly": -1
+        "node": 2
+      }
+    }
+  },
+  {
+    "anomaly_5": {
+      "name_field": [
+        "SAU_UTIL_4G"
+      ],
+      "content": "Tăng số lượng attach/service request",
+      "meta": {
+        "date": "2025-02-07T20:55:00.000",
+        "node": 2
+      }
+    }
+  },
+  {
+    "anomaly_6": {
+      "name_field": [
+        "BEARER_MME_UTIL"
+      ],
+      "content": "Tăng số lượng attach/service request",
+      "meta": {
+        "date": "2025-02-07T20:55:00.000",
+        "node": 2
       }
     }
   }
