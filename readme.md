@@ -3,7 +3,7 @@
 ##  Luồng hoạt động
 
 <p align="center">
-  <img src="docs/ragflow.jpg" width="600"/>
+  <img src="docs/ragflow.jpg" width="900"/>
 </p>
 
 ---

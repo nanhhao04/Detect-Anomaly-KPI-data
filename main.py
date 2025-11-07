@@ -14,7 +14,7 @@ def main():
     df2 = pd.read_csv(path2)
 
     window_len = 6
-    contamination = 0.05  # Sửa typo: cotamination -> contamination
+    contamination = 0.05
 
     scaled_df1 = load_and_scale_data(path1, 1)
     scaled_df2 = load_and_scale_data(path2, 2)
@@ -30,13 +30,22 @@ def main():
     print(f"\nSố dòng dữ liệu gốc - Node 1: {len(df1)}, Node 2: {len(df2)}")
     print(f"Số dòng dữ liệu scaled - Node 1: {len(scaled_df1)}, Node 2: {len(scaled_df2)}")
 
-    X1 = create_sequence(scaled_df1, window_len)
-    X2 = create_sequence(scaled_df2, window_len)
+    X1 = scaled_df1
+    X2 = scaled_df2
+    #X1 = create_sequence(scaled_df1, window_len)
+    #X2 = create_sequence(scaled_df2, window_len)
 
     print(f"Số window - Node 1: {len(X1)}, Node 2: {len(X2)}\n")
 
-    X = np.vstack([X1, X2])
-    X_flat = X.reshape(X.shape[0], -1)
+    #X = np.vstack([X1, X2])
+    #X_flat = X.reshape(X.shape[0], -1)
+    #X_flat.drop(columns=['date'], inplace=True)
+
+    X_flat = pd.concat([scaled_df1, scaled_df2], ignore_index=True)
+
+    # Loại bỏ các cột không dùng cho mô hình
+    cols_drop = [c for c in X_flat.columns if "date" in c.lower() or "window" in c.lower() or "node" in c.lower()]
+    X_flat = X_flat.drop(columns=cols_drop, errors="ignore")
 
     # Train
     iso = train_isolation_forest(X_flat, contamination)

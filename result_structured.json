@@ -38,9 +38,9 @@
   {
     "anomaly_4": {
       "name_field": [
-        "SAU_4G"
+        "BEARER_MME_UTIL"
       ],
-      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên mạng 4G",
+      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
       "meta": {
         "date": "2025-02-07T20:55:00.000",
         "node": 2
@@ -50,9 +50,9 @@
   {
     "anomaly_5": {
       "name_field": [
-        "S1_INTRA_HANDOVER_SR"
+        "CREATE_DEDICATED_BEARER_SR"
       ],
-      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên mạng 4G",
+      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
       "meta": {
         "date": "2025-02-07T20:55:00.000",
         "node": 2
@@ -62,9 +62,9 @@
   {
     "anomaly_6": {
       "name_field": [
-        "THROUGHPUT_4G"
+        "CSFB SR"
       ],
-      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên mạng 4G",
+      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
       "meta": {
         "date": "2025-02-07T20:55:00.000",
         "node": 2

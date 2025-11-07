@@ -89,7 +89,6 @@ def train_isolation_forest(X_flat, contamination=0.05, random_state=42):
     X_valid, X_test = train_test_split(X_temp, test_size=0.5, random_state=random_state)
 
     print(f"[train_isolation_forest] Train size: {len(X_train)}, Valid: {len(X_valid)}, Test: {len(X_test)}")
-
     iso = IsolationForest(
         n_estimators=200,
         contamination=contamination,
@@ -102,43 +101,36 @@ def train_isolation_forest(X_flat, contamination=0.05, random_state=42):
     return iso
 
 
-def apply_anomaly_detection(iso, X, X1,X2, scaled_df1, scaled_df2, window_len):
+def apply_anomaly_detection(iso, X, X1, X2, scaled_df1, scaled_df2, window_len):
+
     start_time = time.time()
 
-    y_pred_full = iso.predict(X)  # -1 là anomaly, 1 là normal
-    scores_full = iso.decision_function(X) * -1  # đảo dấu cho score cao -> càng bất thường
+    # --- Dự đoán anomaly ---
+    y_pred_full = iso.predict(X)          # -1 = anomaly, 1 = normal
+    scores_full = iso.decision_function(X) * -1  # đảo dấu -> score cao = càng bất thường
 
+    # --- Tách theo node ---
     n1 = len(X1)
     scores1, scores2 = scores_full[:n1], scores_full[n1:]
     y1, y2 = y_pred_full[:n1], y_pred_full[n1:]
 
-    # Tính giá trị trung bình cho mỗi window
-    def get_window_averages(df, num_windows, window_len):
-        result_rows = []
-        for i in range(num_windows):
-            start_idx = i * window_len
-            end_idx = min(start_idx + window_len, len(df))
-            window_data = df.iloc[start_idx:end_idx]
-            # Tính trung bình cho các cột số, giữ nguyên cột khác
-            avg_row = {}
-            for col in window_data.columns:
-                if pd.api.types.is_numeric_dtype(window_data[col]):
-                    avg_row[col] = window_data[col].mean()
-                else:
-                    # Với cột không phải số (như date), lấy giá trị giữa window
-                    mid_idx = len(window_data) // 2
-                    avg_row[col] = window_data[col].iloc[mid_idx]
-            result_rows.append(avg_row)
-        return pd.DataFrame(result_rows)
+    # --- Chỉ thêm thông tin window_start / window_end ---
+    def add_window_info(df, window_len):
+        df = df.copy()
+        df["window_start"] = df["date"]
+        df["window_end"] = df["date"] + pd.to_timedelta(window_len, unit="m")  # ví dụ: window_len phút
+        return df
 
-    df1_result = get_window_averages(scaled_df1, len(X1), window_len)
-    df2_result = get_window_averages(scaled_df2, len(X2), window_len)
+    df1_result = add_window_info(scaled_df1, window_len)
+    df2_result = add_window_info(scaled_df2, window_len)
 
-    df1_result['score'] = scores1
-    df1_result['anomaly'] = y1
-    df2_result['score'] = scores2
-    df2_result['anomaly'] = y2
+    # --- Thêm cột kết quả từ mô hình ---
+    df1_result["score"] = scores1
+    df1_result["anomaly"] = y1
+    df2_result["score"] = scores2
+    df2_result["anomaly"] = y2
 
+    # --- Gộp lại ---
     data_with_date = pd.concat([df1_result, df2_result], ignore_index=True)
 
     elapsed_time = time.time() - start_time
@@ -146,78 +138,69 @@ def apply_anomaly_detection(iso, X, X1,X2, scaled_df1, scaled_df2, window_len):
 
     return data_with_date
 
+
 #Lưu toàn bộ điểm bất thường (anomaly == -1) với giá trị trung bình của window.
 def save_top_anomalies_json(data_with_date, df_raw1, df_raw2, window_len, output_path="result_ml.json"):
+    """
+    Lưu các điểm anomaly (không tính trung bình theo window nữa).
+    Mỗi window chỉ dùng để xác định thời gian start / end.
+    """
+    import pandas as pd, time
+
     start_time = time.time()
 
-    # --- Tính trung bình theo window, có thêm thời gian start/end ---
-    def get_window_averages(df, num_windows, window_len):
+    def attach_windows(df, window_len):
+        """Tạo cột window_start và window_end cho từng đoạn."""
         df = df.copy()
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
 
-        result_rows = []
         n = len(df)
+        num_windows = (n + window_len - 1) // window_len
+        window_starts, window_ends = [], []
 
         for i in range(num_windows):
             start_idx = i * window_len
             end_idx = min(start_idx + window_len, n)
-            window_data = df.iloc[start_idx:end_idx]
+            ws = df.loc[start_idx, "date"]
+            we = df.loc[end_idx - 1, "date"]
+            window_starts.extend([ws] * (end_idx - start_idx))
+            window_ends.extend([we] * (end_idx - start_idx))
 
-            avg_row = {}
+        df["window_start"] = window_starts
+        df["window_end"] = window_ends
+        return df
 
-            # Thời gian bắt đầu & kết thúc của cửa sổ
-            window_start = window_data["date"].iloc[0]
-            window_end = window_data["date"].iloc[-1]
+    # --- Gắn window cho từng node ---
+    df_raw1 = attach_windows(df_raw1, window_len)
+    df_raw1["node"] = 1
 
-            avg_row["window_start"] = window_start
-            avg_row["window_end"] = window_end
-            avg_row["date"] = window_start  # giữ "date" = thời gian bắt đầu cho thống nhất
+    df_raw2 = attach_windows(df_raw2, window_len)
+    df_raw2["node"] = 2
 
-            # Trung bình cho các cột số, giữ nguyên các cột khác (nếu cần)
-            for col in window_data.columns:
-                if pd.api.types.is_numeric_dtype(window_data[col]):
-                    avg_row[col] = window_data[col].mean()
+    # --- Gộp dữ liệu 2 node ---
+    df_all = pd.concat([df_raw1, df_raw2], ignore_index=True)
 
-            result_rows.append(avg_row)
+    # --- Thêm score và anomaly từ mô hình ---
+    df_all["score"] = data_with_date["score"].values
+    df_all["anomaly"] = data_with_date["anomaly"].values
 
-        return pd.DataFrame(result_rows)
-
-    # --- Xử lý cho từng node ---
-    n1 = len(data_with_date[data_with_date["node"] == 1])
-    n2 = len(data_with_date[data_with_date["node"] == 2])
-
-    df_raw1_avg = get_window_averages(df_raw1, n1, window_len)
-    df_raw1_avg["node"] = 1
-    df_raw2_avg = get_window_averages(df_raw2, n2, window_len)
-    df_raw2_avg["node"] = 2
-
-    # --- Ghép & thêm cột score / anomaly ---
-    df_raw_all = pd.concat([df_raw1_avg, df_raw2_avg], ignore_index=True)
-    df_raw_all["score"] = data_with_date["score"].values
-    df_raw_all["anomaly"] = data_with_date["anomaly"].values
-
-    # --- Lọc và sắp xếp các anomaly ---
-    anomalies = df_raw_all[df_raw_all["anomaly"] == -1].copy()
+    # --- Lọc anomaly ---
+    anomalies = df_all[df_all["anomaly"] == -1].copy()
     anomalies = anomalies.sort_values("score", ascending=False)
 
-    # --- Lưu cả 2 loại file ---
-    # Toàn bộ dữ liệu (đầy đủ, cả normal + anomaly)
-    full_path = output_path.replace(".json", "_full.json")
-    df_raw_all.to_json(full_path, orient="records", date_format="iso", force_ascii=False)
-
-    # Chỉ anomaly
+    # --- Lưu file ---
+    #full_path = output_path.replace(".json", "_full.json")
+    #df_all.to_json(full_path, orient="records", date_format="iso", force_ascii=False)
     anomalies.to_json(output_path, orient="records", date_format="iso", force_ascii=False)
 
-    elapsed_time = time.time() - start_time
-    print(
-        f"[save_top_anomalies_json] Đã lưu {len(anomalies)} anomaly và toàn bộ dữ liệu ({len(df_raw_all)} windows)."
-    )
+    elapsed = time.time() - start_time
+    print(f"[save_top_anomalies_json] ✅ Lưu {len(anomalies)} anomaly")
     print(f"   → File anomaly: {output_path}")
-    print(f"   → File đầy đủ: {full_path}")
-    print(f"   Hoàn thành trong {elapsed_time:.2f} giây")
+    print(f"   → Thời gian: {elapsed:.2f} giây")
 
     return anomalies
+
 
 
 def extract_anomaly_info(json_path):
@@ -302,55 +285,70 @@ def get_window_averages(df, window_len):
     return avg_df
 
 
-
-
-
-def plot_anomaly(df, date, node=None, field=None, save_dir="plot_pics", drawn_fields=None):
-    if drawn_fields is None:
-        drawn_fields = set()
-
-    if field is None or field not in df.columns:
-        print(f"Cột '{field}' không tồn tại hoặc không hợp lệ.")
-        return None
-    if field in drawn_fields:
-        print(f"Field '{field}' đã vẽ trước đó, bỏ qua.")
-        return None
+def plot_anomaly(json_path, field, full_data, target_day, node, save_dir="plot_pics"):
+    """
+    Vẽ biểu đồ giá trị theo thời gian của 'field' trong 'full_data'
+    và highlight các điểm anomaly đọc từ file JSON.
+    """
+    import os
+    import json
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
 
     os.makedirs(save_dir, exist_ok=True)
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    # Lọc theo ngày
-    target_day = pd.to_datetime(date).normalize()
-    day_data = df[(df["date"] >= target_day) & (df["date"] < target_day + pd.Timedelta(days=1))]
-    if node is not None and "node" in df.columns:
-        day_data = day_data[day_data["node"].astype(str) == str(node)]
+    # --- Đọc dữ liệu anomaly từ file JSON ---
+    with open(json_path, "r", encoding="utf-8") as f:
+        anomalies = pd.DataFrame(json.load(f))
 
-    if day_data.empty:
-        print(f"Không có dữ liệu cho ngày {target_day.date()}, node={node}")
+    anomalies["date"] = pd.to_datetime(anomalies["date"])
+    anomalies = anomalies[(anomalies["node"] == node) & (anomalies["anomaly"] == -1)]
+
+    # --- Lọc dữ liệu chính ---
+    df = full_data.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df = df[(df["node"] == node) & (df["date"].dt.strftime("%Y-%m-%d") == target_day)]
+
+    if df.empty:
+        print(f"[plot_anomaly] ⚠️ Không có dữ liệu cho {field} node {node} tại {target_day}")
         return None
 
-    # Vẽ
-    plt.figure(figsize=(9, 4))
-    plt.plot(day_data["date"], day_data[field], marker="o", linewidth=2, label=field)
-    plt.title(f"{field} - Node {node} ({target_day.date()})", fontsize=12, fontweight="bold")
-    plt.xlabel("Thời gian")
-    plt.ylabel("Giá trị KPI")
-    plt.legend()
-    plt.grid(True, linestyle="--", alpha=0.5)
-    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    plt.xticks(rotation=30)
-    plt.tight_layout()
+    # --- Lọc anomaly trong ngày ---
+    anomaly_points = anomalies[
+        (anomalies["date"].dt.strftime("%Y-%m-%d") == target_day)
+    ]
 
-    # Lưu file
-    fname = f"{field}_{target_day.date()}_Node{node}.png"
-    path = os.path.join(save_dir, fname)
-    plt.savefig(path, dpi=200)
+    # --- Vẽ ---
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(df["date"], df[field], color="#1f77b4", lw=2, label="Giá trị đo")
+    ax.set_title(f"{field} - Node {node} ({target_day})", fontsize=12, fontweight="bold")
+    ax.set_xlabel("Thời gian")
+    ax.set_ylabel("Giá trị")
+
+    # --- Highlight anomaly ---
+    if not anomaly_points.empty:
+        merged = pd.merge(df, anomaly_points[["date", "score"]], on="date", how="inner")
+        ax.scatter(
+            merged["date"], merged[field],
+            color="red", s=60, label="Anomaly", zorder=5, alpha=0.8, edgecolors="black"
+        )
+
+    # --- Định dạng trục thời gian ---
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    plt.xticks(rotation=45)
+    ax.grid(True, linestyle="--", alpha=0.5)
+    ax.legend()
+
+    # --- Lưu ảnh ---
+    img_path = os.path.join(save_dir, f"{field}_node{node}_{target_day}.png")
+    plt.tight_layout()
+    plt.savefig(img_path, dpi=150)
     plt.close()
 
-    print(f" Đã lưu biểu đồ: {path}")
-    drawn_fields.add(field)
-    return path
+    print(f"[plot_anomaly] ✅ Đã lưu {img_path}")
+    return img_path
+
 
 
 def create_json_output(answer, json_path="result_ml.json", output_path="result_structured.json"):

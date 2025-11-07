@@ -25,10 +25,6 @@ from MLDetectTool import (
     create_json_output,
 )
 
-
-# ==============================
-# Load dữ liệu KPI
-# ==============================
 path1 = "data/data_hl19_1.csv"
 path2 = "data/data_hl19_2.csv"
 data1 = pd.read_csv(path1)
@@ -49,14 +45,31 @@ styles = getSampleStyleSheet()
 styles.add(ParagraphStyle(name="Vietnamese", fontName="Arial", fontSize=11, leading=14))
 
 
-def create_pdf_output(answer_text, json_input="result_structured.json", output_pdf="result.pdf"):
-    anomalies = extract_anomaly_info(json_input)
 
+
+def create_pdf_output(answer_text, json_input="result_structured.json", output_pdf="result.pdf"):
+    """
+    Tạo báo cáo PDF tiếng Việt (Unicode) từ nội dung phân tích và dữ liệu anomaly.
+    - Đọc danh sách anomaly từ file JSON (đã parse)
+    - Sinh biểu đồ bằng hàm plot_anomaly(json_path, field, target_date, node)
+    - Chèn phần mô tả (LLM answer_text) vào trước
+    """
+    # --- Đọc danh sách anomaly ---
+    anomalies = extract_anomaly_info(json_input)
+    if anomalies.empty:
+        print(f"⚠️ Không tìm thấy anomaly trong {json_input}")
+        return None
+
+    # --- Tạo PDF ---
     doc = SimpleDocTemplate(output_pdf, pagesize=A4)
     content = []
+
+    # --- Tiêu đề ---
     content.append(Paragraph("<b>PHÂN TÍCH BẤT THƯỜNG MẠNG</b>", styles["Vietnamese"]))
     content.append(Spacer(1, 0.5 * cm))
     content.append(Paragraph("<b>Kết quả phân tích:</b>", styles["Vietnamese"]))
+
+    # --- Làm sạch phần mô tả (bỏ JSON trong answer_text) ---
     filtered_text = []
     json_started = False
     for line in answer_text.splitlines():
@@ -65,30 +78,57 @@ def create_pdf_output(answer_text, json_input="result_structured.json", output_p
         if not json_started:
             filtered_text.append(line)
     clean_answer_text = "\n".join(filtered_text)
-    clean_answer_text = re.sub(r"```json.*?```", "", answer_text, flags=re.DOTALL)
+    clean_answer_text = re.sub(r"```.*?```", "", answer_text, flags=re.DOTALL)
+    clean_answer_text = re.sub(r"[*_#>`]+", "", clean_answer_text)
+    clean_answer_text = re.sub(r"\n{2,}", "\n", clean_answer_text).strip()
 
     content.append(Paragraph(clean_answer_text.replace("\n", "<br/>"), styles["Vietnamese"]))
     content.append(Spacer(1, 0.5 * cm))
 
-    if not anomalies.empty:
-        content.append(Paragraph("<b>Biểu đồ minh họa:</b>", styles["Vietnamese"]))
-        drawn_fields = set()  # set chứa các field đã vẽ
+    # --- Phần biểu đồ ---
+    content.append(Paragraph("<b>Biểu đồ minh họa các điểm bất thường:</b>", styles["Vietnamese"]))
+    drawn = set()
 
-        for _, row in anomalies.iterrows():
-            path = plot_anomaly(
-                data_avg,
-                row["date"],
-                row["node"],
-                row["field"],
-                drawn_fields=drawn_fields
-            )
-            if isinstance(path, str):  #  đảm bảo path là string
-                content.append(Image(path, width=14 * cm, height=6 * cm))
-                content.append(Spacer(1, 0.4 * cm))
+    for _, row in anomalies.iterrows():
+        field = row.get("field")
+        node = row.get("node")
+        date = row.get("date")
 
+        # --- Bỏ qua giá trị thiếu ---
+        if not field or not date:
+            continue
+
+        # Chuyển định dạng ngày
+        try:
+            target_day = pd.to_datetime(date).strftime("%Y-%m-%d")
+        except Exception:
+            continue
+
+        key = (field, node, target_day)
+        if key in drawn:
+            continue
+
+        # --- Gọi hàm plot_anomaly mới ---
+        img_path = plot_anomaly(
+            json_path="result_ml.json",  # file anomaly gốc (đầy đủ)
+            field=field,
+            full_data=data_avg,
+            target_day=target_day,
+            node=node,
+            save_dir="plot_pics",
+        )
+
+        if isinstance(img_path, str) and os.path.exists(img_path):
+            content.append(Image(img_path, width=14 * cm, height=6 * cm))
+            content.append(Spacer(1, 0.4 * cm))
+            drawn.add(key)
+
+    # --- Xuất PDF ---
     doc.build(content)
-    print(f" Đã tạo file PDF: {output_pdf}")
+    print(f"✅ Đã tạo file PDF: {output_pdf}")
     return output_pdf
+
+
 
 
 def build_faiss_retriever(pdf_path, embedding_model, chunk_size=400, chunk_overlap=100, faiss_dir="faiss_index"):
@@ -211,11 +251,12 @@ if __name__ == "__main__":
 
     Viết phần mô tả bằng tiếng Việt có cấu trúc như sau:
 
-    **Dữ liệu được cung cấp cho <số lượng> khoảng thời gian:**
-    1. **Khoảng từ <hh:mm> đến <hh:mm> giờ ngày <dd/mm/yyyy>:**
-       - Nêu rõ các trường KPI nổi bật trong khoảng này (tăng hoặc giảm bất thường).(khoảng 1 đến 3 trường)
+    **Dữ liệu được cung cấp cho <số lượng> điểm bất thường trong các khoảng thời gian **
+    1. **Khoảng từ <hh:mm> đến <hh:mm> giờ ngày <dd/mm/yyyy>:** (lưu ý: ví dụ 08:00 đến 08:30 và không lặp lại)
+       - Nêu rõ các trường KPI nổi bật trong khoảng này (tăng hoặc giảm bất thường).(khoảng 2 đến 4 trường)
        - Ghi rõ giá trị trung bình của từng trường KPI (ví dụ: "giá trị trung bình là 16.30%").
        - Nguyên nhân có thể xảy ra (ví dụ: "Tăng số lượng attach/service request dẫn đến tăng tải trên MME").
+       - Điểm bất thường nhất <hh:mm>, có giá trị trường KPI nào thay đổi đột biến với giá trị là.
     2. ... (cho các khoảng khác tương tự)
 
     **Kết quả phân tích:**
