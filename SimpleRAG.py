@@ -65,7 +65,7 @@ def create_pdf_output(answer_text, json_input="result_structured.json", output_p
         if not json_started:
             filtered_text.append(line)
     clean_answer_text = "\n".join(filtered_text)
-    clean_text = re.sub(r"```json.*?```", "", answer_text, flags=re.DOTALL)
+    clean_answer_text = re.sub(r"```json.*?```", "", answer_text, flags=re.DOTALL)
 
     content.append(Paragraph(clean_answer_text.replace("\n", "<br/>"), styles["Vietnamese"]))
     content.append(Spacer(1, 0.5 * cm))
@@ -215,7 +215,7 @@ if __name__ == "__main__":
     1. **Khoảng từ <hh:mm> đến <hh:mm> giờ ngày <dd/mm/yyyy>:**
        - Nêu rõ các trường KPI nổi bật trong khoảng này (tăng hoặc giảm bất thường).(khoảng 1 đến 3 trường)
        - Ghi rõ giá trị trung bình của từng trường KPI (ví dụ: "giá trị trung bình là 16.30%").
-       - Viết rõ nguyên nhân có thể xảy ra (ví dụ: "Tăng số lượng attach/service request dẫn đến tăng tải trên MME").
+       - Nguyên nhân có thể xảy ra (ví dụ: "Tăng số lượng attach/service request dẫn đến tăng tải trên MME").
     2. ... (cho các khoảng khác tương tự)
 
     **Kết quả phân tích:**

@@ -365,7 +365,6 @@ def create_json_output(answer, json_path="result_ml.json", output_path="result_s
     structured = []
     anomaly_counter = 1
 
-    # --- TH1: Model trả về JSON hợp lệ ---
     try:
         # Tách các dòng không rỗng
         lines = [l.strip() for l in answer.splitlines() if l.strip()]

@@ -2,9 +2,9 @@
   {
     "anomaly_1": {
       "name_field": [
-        "SAU_4G"
+        "BEARER_MME_UTIL"
       ],
-      "content": "Tăng số lượng attach/service request",
+      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
       "meta": {
         "date": "2025-02-07T20:20:00.000",
         "node": 2
@@ -14,9 +14,9 @@
   {
     "anomaly_2": {
       "name_field": [
-        "SAU_UTIL_4G"
+        "CREATE_DEDICATED_BEARER_SR"
       ],
-      "content": "Tăng số lượng attach/service request",
+      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
       "meta": {
         "date": "2025-02-07T20:20:00.000",
         "node": 2
@@ -26,9 +26,9 @@
   {
     "anomaly_3": {
       "name_field": [
-        "BEARER_MME_UTIL"
+        "CSFB SR"
       ],
-      "content": "Tăng số lượng attach/service request",
+      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
       "meta": {
         "date": "2025-02-07T20:20:00.000",
         "node": 2
@@ -40,7 +40,7 @@
       "name_field": [
         "SAU_4G"
       ],
-      "content": "Tăng số lượng attach/service request",
+      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên mạng 4G",
       "meta": {
         "date": "2025-02-07T20:55:00.000",
         "node": 2
@@ -50,9 +50,9 @@
   {
     "anomaly_5": {
       "name_field": [
-        "SAU_UTIL_4G"
+        "S1_INTRA_HANDOVER_SR"
       ],
-      "content": "Tăng số lượng attach/service request",
+      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên mạng 4G",
       "meta": {
         "date": "2025-02-07T20:55:00.000",
         "node": 2
@@ -62,9 +62,9 @@
   {
     "anomaly_6": {
       "name_field": [
-        "BEARER_MME_UTIL"
+        "THROUGHPUT_4G"
       ],
-      "content": "Tăng số lượng attach/service request",
+      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên mạng 4G",
       "meta": {
         "date": "2025-02-07T20:55:00.000",
         "node": 2
