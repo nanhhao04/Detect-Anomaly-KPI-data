@@ -114,7 +114,6 @@ def apply_anomaly_detection(iso, X, X1, X2, scaled_df1, scaled_df2, window_len):
     scores1, scores2 = scores_full[:n1], scores_full[n1:]
     y1, y2 = y_pred_full[:n1], y_pred_full[n1:]
 
-    # --- Chỉ thêm thông tin window_start / window_end ---
     def add_window_info(df, window_len):
         df = df.copy()
         df["window_start"] = df["date"]
@@ -139,12 +138,8 @@ def apply_anomaly_detection(iso, X, X1, X2, scaled_df1, scaled_df2, window_len):
     return data_with_date
 
 
-#Lưu toàn bộ điểm bất thường (anomaly == -1) với giá trị trung bình của window.
+#Lưu toàn bộ điểm bất thường (anomaly == -1)
 def save_top_anomalies_json(data_with_date, df_raw1, df_raw2, window_len, output_path="result_ml.json"):
-    """
-    Lưu các điểm anomaly (không tính trung bình theo window nữa).
-    Mỗi window chỉ dùng để xác định thời gian start / end.
-    """
     import pandas as pd, time
 
     start_time = time.time()
@@ -195,7 +190,7 @@ def save_top_anomalies_json(data_with_date, df_raw1, df_raw2, window_len, output
     anomalies.to_json(output_path, orient="records", date_format="iso", force_ascii=False)
 
     elapsed = time.time() - start_time
-    print(f"[save_top_anomalies_json] ✅ Lưu {len(anomalies)} anomaly")
+    print(f"[save_top_anomalies_json] Lưu {len(anomalies)} anomaly")
     print(f"   → File anomaly: {output_path}")
     print(f"   → Thời gian: {elapsed:.2f} giây")
 
@@ -284,17 +279,8 @@ def get_window_averages(df, window_len):
     avg_df = avg_df.sort_values('date').reset_index(drop=True)
     return avg_df
 
-
+# Đầu vào là toàn bộ dữ liệu, targetday, dữ liệu anomaly ở trong file json
 def plot_anomaly(json_path, field, full_data, target_day, node, save_dir="plot_pics"):
-    """
-    Vẽ biểu đồ giá trị theo thời gian của 'field' trong 'full_data'
-    và highlight các điểm anomaly đọc từ file JSON.
-    """
-    import os
-    import json
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
 
     os.makedirs(save_dir, exist_ok=True)
 
@@ -346,7 +332,7 @@ def plot_anomaly(json_path, field, full_data, target_day, node, save_dir="plot_p
     plt.savefig(img_path, dpi=150)
     plt.close()
 
-    print(f"[plot_anomaly] ✅ Đã lưu {img_path}")
+    print(f"[plot_anomaly] Đã lưu {img_path}")
     return img_path
 
 
@@ -412,7 +398,7 @@ def create_json_output(answer, json_path="result_ml.json", output_path="result_s
         print(f" Không phát hiện JSON trong kết quả, fallback sang parser cũ: {e}")
 
 
-        # --- TH2: fallback sang logic markdown cũ (giữ nguyên của bạn) ---
+        # TH2: fallback sang logic markdown cũ
         lines = [line.strip() for line in answer.splitlines() if line.strip()]
         current_date = None
         current_item = None

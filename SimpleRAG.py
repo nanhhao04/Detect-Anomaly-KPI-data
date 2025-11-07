@@ -48,16 +48,10 @@ styles.add(ParagraphStyle(name="Vietnamese", fontName="Arial", fontSize=11, lead
 
 
 def create_pdf_output(answer_text, json_input="result_structured.json", output_pdf="result.pdf"):
-    """
-    Tạo báo cáo PDF tiếng Việt (Unicode) từ nội dung phân tích và dữ liệu anomaly.
-    - Đọc danh sách anomaly từ file JSON (đã parse)
-    - Sinh biểu đồ bằng hàm plot_anomaly(json_path, field, target_date, node)
-    - Chèn phần mô tả (LLM answer_text) vào trước
-    """
     # --- Đọc danh sách anomaly ---
     anomalies = extract_anomaly_info(json_input)
     if anomalies.empty:
-        print(f"⚠️ Không tìm thấy anomaly trong {json_input}")
+        print(f" Không tìm thấy anomaly trong {json_input}")
         return None
 
     # --- Tạo PDF ---
@@ -125,13 +119,13 @@ def create_pdf_output(answer_text, json_input="result_structured.json", output_p
 
     # --- Xuất PDF ---
     doc.build(content)
-    print(f"✅ Đã tạo file PDF: {output_pdf}")
+    print(f" Đã tạo file PDF: {output_pdf}")
     return output_pdf
 
 
 
 
-def build_faiss_retriever(pdf_path, embedding_model, chunk_size=400, chunk_overlap=100, faiss_dir="faiss_index"):
+def build_faiss_retriever(pdf_path, embedding_model, chunk_size=200, chunk_overlap=50, faiss_dir="faiss_index"):
     os.makedirs(faiss_dir, exist_ok=True)
     index_path = os.path.join(faiss_dir, "index.pkl")
 
