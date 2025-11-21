@@ -139,17 +139,26 @@ def apply_anomaly_detection(iso, X, X1, X2, scaled_df1, scaled_df2, window_len):
 
 
 #Lưu toàn bộ điểm bất thường (anomaly == -1)
-def save_top_anomalies_json(data_with_date, df_raw1, df_raw2, window_len, output_path="result_ml.json"):
-    import pandas as pd, time
+import pandas as pd
+import numpy as np
+import time
+from sklearn.linear_model import LinearRegression
 
+import pandas as pd
+import numpy as np
+import time
+from sklearn.linear_model import LinearRegression
+
+
+def save_top_anomalies_json(data_with_date, df_raw1, df_raw2, window_len, output_path="result_ml.json"):
     start_time = time.time()
 
+    # Hàm attach_windows (giữ nguyên logic chuẩn bị dữ liệu)
     def attach_windows(df, window_len):
         """Tạo cột window_start và window_end cho từng đoạn."""
         df = df.copy()
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
-
         n = len(df)
         num_windows = (n + window_len - 1) // window_len
         window_starts, window_ends = [], []
@@ -157,46 +166,102 @@ def save_top_anomalies_json(data_with_date, df_raw1, df_raw2, window_len, output
         for i in range(num_windows):
             start_idx = i * window_len
             end_idx = min(start_idx + window_len, n)
+            if start_idx >= n: break
             ws = df.loc[start_idx, "date"]
             we = df.loc[end_idx - 1, "date"]
             window_starts.extend([ws] * (end_idx - start_idx))
             window_ends.extend([we] * (end_idx - start_idx))
 
+        df = df.iloc[:len(window_starts)]
         df["window_start"] = window_starts
         df["window_end"] = window_ends
         return df
 
-    # --- Gắn window cho từng node ---
+    # --- 1. Chuẩn bị dữ liệu ---
     df_raw1 = attach_windows(df_raw1, window_len)
     df_raw1["node"] = 1
-
     df_raw2 = attach_windows(df_raw2, window_len)
     df_raw2["node"] = 2
 
-    # --- Gộp dữ liệu 2 node ---
     df_all = pd.concat([df_raw1, df_raw2], ignore_index=True)
 
-    # --- Thêm score và anomaly từ mô hình ---
+    # Gán kết quả từ model
     df_all["score"] = data_with_date["score"].values
     df_all["anomaly"] = data_with_date["anomaly"].values
 
-    # --- Lọc anomaly ---
+    # --- 2. Xác định các cột KPI ---
+    exclude_cols = ['date', 'window_start', 'window_end', 'node', 'score', 'anomaly']
+    feature_cols = [c for c in df_all.columns if c not in exclude_cols]
+
+    print(f"Đang tính trend cho {len(feature_cols)} chỉ số dựa trên toàn bộ cửa sổ...")
+
+    # --- 3. Tính Trend cho TỪNG Cửa Sổ (Sử dụng Toàn bộ dữ liệu) ---
+
+    # Lấy các cửa sổ độc nhất (node, ws, we) từ df_all
+    unique_windows = df_all[['node', 'window_start', 'window_end']].drop_duplicates()
+
+    # DataFrame tạm để lưu kết quả trend (để join lại sau)
+    # Khởi tạo trend_df với các cột trend tương ứng
+    for col in feature_cols:
+        df_all[f"{col}_trend"] = "stable"  # Khởi tạo trực tiếp trên df_all
+
+    # Lặp qua các cửa sổ độc nhất
+    for _, row in unique_windows.iterrows():
+        node, ws, we = row['node'], row['window_start'], row['window_end']
+
+        # Lấy TOÀN BỘ dữ liệu (dữ liệu thô) trong cửa sổ này
+        window_data = df_all[
+            (df_all['node'] == node) &
+            (df_all['window_start'] == ws) &
+            (df_all['window_end'] == we)
+            ].sort_values('date')
+
+        if len(window_data) < 2:
+            continue
+
+        # Tạo trục X thời gian (0, 1, 2...) cho hồi quy dựa trên TOÀN BỘ điểm trong window
+        indices = window_data.index
+        X = np.arange(len(window_data)).reshape(-1, 1)
+
+        # Định nghĩa ngưỡng độ dốc (Điều chỉnh ngưỡng này nếu cần thiết, ví dụ: 0.01 cho tỷ lệ %, 100 cho giá trị lớn)
+        # Giữ nguyên 0.01 như code cũ để đảm bảo tính liên tục, nhưng nên cân nhắc điều chỉnh
+        TREND_THRESHOLD = 0.01
+
+        # Lặp qua từng cột KPI
+        for col in feature_cols:
+            y = window_data[col].values.reshape(-1, 1)
+            slope = 0.0
+
+            # Chỉ tính nếu có đủ dữ liệu
+            if len(y) > 1:
+                model = LinearRegression().fit(X, y)
+                slope = model.coef_[0][0]
+
+            # Logic xác định xu hướng
+            if slope > TREND_THRESHOLD:
+                trend = "increasing"
+            elif slope < -TREND_THRESHOLD:
+                trend = "decreasing"
+            else:
+                trend = "stable"
+
+            # Gán kết quả trend trở lại df_all cho các dòng thuộc window này
+            df_all.loc[indices, f"{col}_trend"] = trend
+
+    # --- 4. Lọc và Lưu Anomaly ---
+    # Lọc lại các bản ghi anomaly (giờ đã có cột trend)
     anomalies = df_all[df_all["anomaly"] == -1].copy()
     anomalies = anomalies.sort_values("score", ascending=False)
 
-    # --- Lưu file ---
-    #full_path = output_path.replace(".json", "_full.json")
-    #df_all.to_json(full_path, orient="records", date_format="iso", force_ascii=False)
+    # Lưu file
     anomalies.to_json(output_path, orient="records", date_format="iso", force_ascii=False)
 
     elapsed = time.time() - start_time
-    print(f"[save_top_anomalies_json] Lưu {len(anomalies)} anomaly")
-    print(f"   → File anomaly: {output_path}")
-    print(f"   → Thời gian: {elapsed:.2f} giây")
+    print(f"[save_top_anomalies_json] Đã lưu {len(anomalies)} bản ghi bất thường.")
+    print(f"   → File: {output_path}")
+    print(f"   → Thời gian xử lý: {elapsed:.2f} giây")
 
     return anomalies
-
-
 
 def extract_anomaly_info(json_path):
     import json
@@ -475,3 +540,5 @@ def create_json_output(answer, json_path="result_ml.json", output_path="result_s
     print(f"   → Tổng số anomaly: {len(structured)}")
 
     return structured
+
+

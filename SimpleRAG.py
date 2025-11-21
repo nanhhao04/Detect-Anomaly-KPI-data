@@ -22,11 +22,13 @@ from MLDetectTool import (
     plot_anomaly,
     get_window_averages,
     extract_anomaly_info,
-    create_json_output,
+    create_json_output
 )
 
+path = "data/data_hl19.csv"
 path1 = "data/data_hl19_1.csv"
 path2 = "data/data_hl19_2.csv"
+full_data = pd.read_csv(path)
 data1 = pd.read_csv(path1)
 data2 = pd.read_csv(path2)
 data_avg1 = get_window_averages(data1, window_len=1)
@@ -74,12 +76,13 @@ def create_pdf_output(answer_text, json_input="result_structured.json", output_p
     clean_answer_text = "\n".join(filtered_text)
     clean_answer_text = re.sub(r"```.*?```", "", answer_text, flags=re.DOTALL)
     clean_answer_text = re.sub(r"[*_#>`]+", "", clean_answer_text)
+    clean_answer_text = re.sub("JSON OUTPUT CUỐI CÙNG", "", clean_answer_text)
     clean_answer_text = re.sub(r"\n{2,}", "\n", clean_answer_text).strip()
 
     content.append(Paragraph(clean_answer_text.replace("\n", "<br/>"), styles["Vietnamese"]))
     content.append(Spacer(1, 0.5 * cm))
 
-    # --- Phần biểu đồ ---
+    # Phần biểu đồ
     content.append(Paragraph("<b>Biểu đồ minh họa các điểm bất thường:</b>", styles["Vietnamese"]))
     drawn = set()
 
@@ -88,7 +91,7 @@ def create_pdf_output(answer_text, json_input="result_structured.json", output_p
         node = row.get("node")
         date = row.get("date")
 
-        # --- Bỏ qua giá trị thiếu ---
+        # Bỏ qua giá trị thiếu
         if not field or not date:
             continue
 
@@ -153,7 +156,7 @@ import os
 
 
 def hf_infer(prompt: str) -> str:
-    model_id = "mistralai/Mistral-7B-Instruct-v0.3"
+    model_id = "meta-llama/Llama-3.1-8B-Instruct"
     token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
     if not token:
         print("Thiếu HUGGINGFACEHUB_API_TOKEN trong .env")
@@ -203,7 +206,7 @@ def hf_infer(prompt: str) -> str:
             print("Lỗi khi gọi text_generation:", e)
 
     print("Không thể gọi model — có thể model này không hỗ trợ các API trên.")
-    print("   ➜ Thử đổi sang model text2text như 'google/flan-t5-large' hoặc 'tiiuae/falcon-7b-instruct'.")
+    print("   ➜ Thử đổi sang model text2text khác.")
     return ""
 
 
@@ -228,48 +231,95 @@ if __name__ == "__main__":
         data = json.load(f)
     subset = [d for d in data if d["date"].startswith("2025-02-07")]
 
+    import json
+
+    # Giả sử `subset` là danh sách anomaly đã có trend
+    json_text = json.dumps(subset, ensure_ascii=False, indent=2)
+
     prompt = f"""
-    Bạn là chuyên gia phân tích hiệu năng mạng viễn thông (KPI Analyst).
-
-    Dữ liệu cung cấp dưới đây đã được hệ thống phát hiện là bất thường (tất cả các record đều là anomaly).
-    Hãy dựa vào tài liệu KPI (FAISS retriever) và **Dữ liệu anomaly dưới đây** để viết **báo cáo phân tích bất thường trong ngày** theo yêu cầu sau:
+    Bạn là chuyên gia phân tích hiệu năng mạng viễn thông (KPI Analyst). Nhiệm vụ của bạn là viết báo cáo phân tích bất thường dựa trên dữ liệu đầu vào.
 
     ---
-
-    ### **Dữ liệu anomaly:**
-    {json.dumps(subset, ensure_ascii=False, indent=2)}
-
-    ---
-
-    ### **Yêu cầu đầu ra:**
-
-    Viết phần mô tả bằng tiếng Việt có cấu trúc như sau:
-
-    **Dữ liệu được cung cấp cho <số lượng> điểm bất thường trong các khoảng thời gian **
-    1. **Khoảng từ <hh:mm> đến <hh:mm> giờ ngày <dd/mm/yyyy>:** (lưu ý: ví dụ 08:00 đến 08:30 và không lặp lại)
-       - Nêu rõ các trường KPI nổi bật trong khoảng này (tăng hoặc giảm bất thường).(khoảng 2 đến 4 trường)
-       - Ghi rõ giá trị trung bình của từng trường KPI (ví dụ: "giá trị trung bình là 16.30%").
-       - Nguyên nhân có thể xảy ra (ví dụ: "Tăng số lượng attach/service request dẫn đến tăng tải trên MME").
-       - Điểm bất thường nhất <hh:mm>, có giá trị trường KPI nào thay đổi đột biến với giá trị là.
-    2. ... (cho các khoảng khác tương tự)
-
-    **Kết quả phân tích:**
-    - Tổng hợp lại các trường KPI nổi bật nhất trong ngày và mô tả nguyên nhân ảnh hưởng chính.
+    ###  Hướng dẫn sử dụng Tài liệu Tham khảo (FAISS Retriever):
+    Bạn phải sử dụng Tài liệu tham khảo KPI được cung cấp để:
+    1. Giải thích ý nghĩa KPI được liệt kê.
+    2. Đưa ra nguyên nhân tiềm ẩn phù hợp với xu hướng bất thường (tăng/giảm).
 
     ---
+    ###  Dữ liệu anomaly (bao gồm `window_start` và `window_end`):
+    """ + json_text + """
 
-    Sau phần mô tả, **xuất ra JSON hợp lệ** đúng định dạng sau (đặt trong khối ```json ... ```):
+    ---
+    ##  QUY TẮC BẮT BUỘC VÀ LỌC TRÙNG LẶP (TUYỆT ĐỐI):
 
+    1. **Gom Nhóm DUY NHẤT theo thời gian:** 
+       - Bạn phải gom nhóm theo đúng cặp thời gian (`window_start`, `window_end`) được cung cấp trong dữ liệu.
+       - Mỗi cặp DUY NHẤT chỉ được tạo **một (1) mục phân tích trong báo cáo văn bản.**
+       - Bạn **KHÔNG ĐƯỢC tự thay đổi, tính toán lại, suy diễn hoặc làm tròn thời gian.**
+       - Bạn phải sử dụng **CHÍNH XÁC** giá trị `window_start` và `window_end` được đưa ra trong dữ liệu.
+
+    2. **Giới hạn số lượng mục phân tích:** 
+       Số lượng mục phân tích trong văn bản **bằng đúng số khoảng thời gian DUY NHẤT**.
+
+    3. **Xu hướng (`_trend`):**
+       - KPI phải nêu rõ đang **tăng bất thường (`increasing`)** hoặc **giảm bất thường (`decreasing`)**.
+       - Sử dụng trường `field_trend` trong dữ liệu, không tự suy luận khác.
+
+    4. **Đồng bộ Văn bản và JSON OUTPUT:**
+       - Mọi KPI được liệt kê trong báo cáo văn bản (tối đa 4 KPI/window) **phải xuất hiện đầy đủ trong JSON OUTPUT cuối cùng.**
+       - **KHÔNG ĐƯỢC THIẾU bất kỳ KPI nào đã nêu trong phần văn bản.**
+
+    5. **Chỉ sử dụng dữ liệu được cung cấp. Không tự bổ sung giá trị.**
+    
+    6. **Tất cả KPI trong báo cáo bắt buộc phải có:**
+       - Giá trị KPI bất thường (số cụ thể từ dữ liệu).
+       - Ý nghĩa KPI (dựa trên tài liệu tham khảo).
+
+    7. **Đánh số thứ tự tự động theo từng khoảng thời gian.**
+
+    ---
+    ##  FORMAT BÁO CÁO (Văn bản) (CHỈ XUẤT WINDOW DUY NHẤT):
+
+    **Sử dụng đánh số tự động (1., 2., 3.,...) cho các window duy nhất.**
+
+    1. **Khoảng từ `<window_start>` đến `<window_end>`:**
+       
+       - Liệt kê 2–4 KPI theo mẫu bắt buộc:
+       - `**<KPI>**: <Ý nghĩa từ tài liệu tham khảo> có giá trị <VALUE> và đang **<tăng/giảm> bất thường**.`
+       - **Nguyên nhân:** 1–2 nguyên nhân phù hợp với hướng tăng/giảm.
+
+
+    2. **<Tiếp tục đánh số tự động cho các window DUY NHẤT còn lại>**
+
+    ---
+    ##  JSON OUTPUT CUỐI CÙNG:
+
+    - Tạo **1 record JSON cho MỌI KPI** được phân tích trong báo cáo văn bản.
+    - Mỗi record phải sử dụng đúng timestamp từ **`window_start` hoặc `window_end`** (bạn chọn timestamp đại diện của cửa sổ là **`window_end`**).
+    - Các trường bắt buộc:
+      - `"date"`: sử dụng giá trị `window_end` (YYYY-MM-DDTHH:MM:SS)
+      - `"node"`: node id
+      - `"field"`: tên KPI
+      - `"reason"`: mô tả nguyên nhân, **phải bao gồm xu hướng tăng/giảm.**
+
+    **Ví dụ JSON đúng chuẩn:**
     ```json
     [
-      {{
-        "date": "<YYYY-MM-DDTHH:MM:SS>",
-        "node": <node_id>,
-        "field": "<tên KPI>",
-        "reason": "<nguyên nhân tóm tắt>"
-      }},
-      ...
+      {
+        "date": "2025-02-07T20:20:00",
+        "node": 2,
+        "field": "SAU_4G",
+        "reason": "SAU_4G tăng bất thường: có thể do lưu lượng ứng dụng tăng đột biến."
+      },
+      {
+        "date": "2025-02-07T20:20:00",
+        "node": 2,
+        "field": "SERVICE_REQUEST_SR",
+        "reason": "SERVICE_REQUEST_SR giảm bất thường: có thể do lỗi đồng bộ hóa."
+      }
     ]
+    ...
+
 """
 
     query = "Phân tích lý do bất thường trong ngày dựa theo KPI và tài liệu hướng dẫn."

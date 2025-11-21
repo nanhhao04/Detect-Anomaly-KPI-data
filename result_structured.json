@@ -4,9 +4,9 @@
       "name_field": [
         "BEARER_MME_UTIL"
       ],
-      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
+      "content": "BEARER_MME_UTIL giảm bất thường: có thể do lưu lượng ứng dụng tăng đột biến.",
       "meta": {
-        "date": "2025-02-07T20:20:00.000",
+        "date": "2025-02-07T20:20:00",
         "node": 2
       }
     }
@@ -16,9 +16,9 @@
       "name_field": [
         "CREATE_DEDICATED_BEARER_SR"
       ],
-      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
+      "content": "CREATE_DEDICATED_BEARER_SR tăng bất thường: có thể do lỗi đồng bộ hóa.",
       "meta": {
-        "date": "2025-02-07T20:20:00.000",
+        "date": "2025-02-07T20:20:00",
         "node": 2
       }
     }
@@ -28,9 +28,9 @@
       "name_field": [
         "CSFB SR"
       ],
-      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
+      "content": "CSFB SR tăng bất thường: có thể do lỗi đồng bộ hóa.",
       "meta": {
-        "date": "2025-02-07T20:20:00.000",
+        "date": "2025-02-07T20:20:00",
         "node": 2
       }
     }
@@ -38,11 +38,11 @@
   {
     "anomaly_4": {
       "name_field": [
-        "BEARER_MME_UTIL"
+        "SAU_4G"
       ],
-      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
+      "content": "SAU_4G giảm bất thường: có thể do lưu lượng ứng dụng tăng đột biến.",
       "meta": {
-        "date": "2025-02-07T20:55:00.000",
+        "date": "2025-02-07T20:20:00",
         "node": 2
       }
     }
@@ -50,11 +50,11 @@
   {
     "anomaly_5": {
       "name_field": [
-        "CREATE_DEDICATED_BEARER_SR"
+        "BEARER_MME_UTIL"
       ],
-      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
+      "content": "BEARER_MME_UTIL tăng bất thường: có thể do lưu lượng ứng dụng tăng đột biến.",
       "meta": {
-        "date": "2025-02-07T20:55:00.000",
+        "date": "2025-02-07T20:55:00",
         "node": 2
       }
     }
@@ -62,11 +62,35 @@
   {
     "anomaly_6": {
       "name_field": [
+        "CREATE_DEDICATED_BEARER_SR"
+      ],
+      "content": "CREATE_DEDICATED_BEARER_SR tăng bất thường: có thể do lỗi đồng bộ hóa.",
+      "meta": {
+        "date": "2025-02-07T20:55:00",
+        "node": 2
+      }
+    }
+  },
+  {
+    "anomaly_7": {
+      "name_field": [
         "CSFB SR"
       ],
-      "content": "Tăng số lượng attach/service request dẫn đến tăng tải trên MME",
+      "content": "CSFB SR tăng bất thường: có thể do lỗi đồng bộ hóa.",
       "meta": {
-        "date": "2025-02-07T20:55:00.000",
+        "date": "2025-02-07T20:55:00",
+        "node": 2
+      }
+    }
+  },
+  {
+    "anomaly_8": {
+      "name_field": [
+        "SAU_4G"
+      ],
+      "content": "SAU_4G tăng bất thường: có thể do lưu lượng ứng dụng tăng đột biến.",
+      "meta": {
+        "date": "2025-02-07T20:55:00",
         "node": 2
       }
     }

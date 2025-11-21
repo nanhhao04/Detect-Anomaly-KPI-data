@@ -54,6 +54,7 @@ def main():
     data_with_date = apply_anomaly_detection(
         iso, X_flat, X1,X2, scaled_df1, scaled_df2, window_len
     )
+    #print(data_with_date.head())
 
     print(f"\nSố điểm dữ liệu sau khi tính trung bình window: {len(data_with_date)}")
     print(f"Số điểm bất thường phát hiện: {(data_with_date['anomaly'] == -1).sum()}\n")
